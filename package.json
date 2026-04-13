@@ -8,7 +8,8 @@
     "start": "firebase emulators:start --only functions",
     "deploy": "firebase deploy --only functions",
     "lint": "eslint .",
-    "check": "node --check src/index.js"
+    "check": "node --check src/index.js",
+    "test": "node --test"
   },
   "engines": {
     "node": ">=20"

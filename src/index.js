@@ -4,6 +4,7 @@ import { stringify } from 'csv-stringify/sync';
 import * as chrono from 'chrono-node';
 import { onRequest } from 'firebase-functions/v2/https';
 import OpenAI from 'openai';
+import { buildStatusText, mapEntriesToCsvRows, parseTextNote } from './domain.js';
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_API_BASE = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
@@ -138,16 +139,18 @@ async function handleCommand(message) {
       .orderBy('eventAt', 'asc');
 
     const snap = await q.get();
-    const cutoff = Date.now() - (7 * 24 * 60 * 60 * 1000);
-    const rows = snap.docs
-      .map((d) => ({ id: d.id, ...d.data() }))
-      .filter((d) => !is7Days || d.eventAt.toMillis() >= cutoff)
-      .map((d) => ({
-        date_time: d.eventAt.toDate().toISOString(),
-        category: d.category || '',
-        note: d.note,
-        source: d.source
-      }));
+    const rows = mapEntriesToCsvRows(
+      snap.docs.map((d) => {
+        const data = d.data();
+        return {
+          eventAtMillis: data.eventAt.toMillis(),
+          category: data.category,
+          note: data.note,
+          source: data.source
+        };
+      }),
+      is7Days
+    );
 
     if (rows.length === 0) {
       await sendMessage(chatId, 'Keine Einträge für den Export gefunden.');
@@ -185,40 +188,12 @@ async function parseIncomingMessage(message) {
 }
 
 function parseTextMessage(text, fallbackUnixSeconds, source = 'text') {
-  const cleaned = text?.trim();
-  if (!cleaned || cleaned.length < 2) {
-    return { ok: false, error: 'Text zu kurz oder leer. Bitte erneut senden.' };
-  }
-
-  const parsedTime = chrono.de.parseDate(cleaned) || chrono.en.parseDate(cleaned);
-  const eventAt = parsedTime ? new Date(parsedTime) : new Date(fallbackUnixSeconds * 1000);
-
-  if (Number.isNaN(eventAt.getTime())) {
-    return { ok: false, error: 'Zeitangabe konnte nicht gelesen werden. Bitte klarer formulieren.' };
-  }
-
-  const category = detectManualCategory(cleaned);
-
-  return {
-    ok: true,
-    note: cleaned,
+  return parseTextNote({
+    text,
+    fallbackUnixSeconds,
     source,
-    category,
-    eventAt
-  };
-}
-
-function detectManualCategory(text) {
-  const lower = text.toLowerCase();
-  if (lower.startsWith('food:') || lower.startsWith('essen:')) return 'Food';
-  if (lower.startsWith('symptom:')) return 'Symptom';
-  if (lower.startsWith('mood:') || lower.startsWith('stimmung:')) return 'Mood';
-  if (lower.startsWith('medication:') || lower.startsWith('medikament:')) return 'Medication';
-  if (lower.startsWith('sleep:') || lower.startsWith('schlaf:')) return 'Sleep';
-  if (lower.startsWith('exercise:') || lower.startsWith('sport:')) return 'Exercise';
-  if (lower.startsWith('hydration:') || lower.startsWith('wasser:')) return 'Hydration';
-  if (lower.startsWith('note:')) return 'Note';
-  return null;
+    timeParser: (input) => chrono.de.parseDate(input) || chrono.en.parseDate(input)
+  });
 }
 
 async function transcribeVoice(fileId) {
@@ -314,13 +289,11 @@ async function upsertStatusMessage(chatId) {
     .get();
 
   const total = totalSnap.data().count;
-  let status = `${total} Notizen gespeichert.`;
-
-  if (!snap.empty) {
-    const latest = snap.docs[0].data();
-    const agoMin = Math.max(0, Math.floor((Date.now() - latest.eventAt.toMillis()) / 60000));
-    status = `${total} Notizen, letzte vor ${agoMin} min.`;
-  }
+  const latest = !snap.empty ? snap.docs[0].data() : null;
+  const status = buildStatusText({
+    total,
+    latestMillis: latest?.eventAt?.toMillis?.()
+  });
 
   const metaRef = db.collection('chatMeta').doc(String(chatId));
   const meta = await metaRef.get();

@@ -47,6 +47,26 @@ DropNote ist ein serverless Telegram-Bot (Firebase Function), der strukturierte 
      -d "url=https://<region>-<project>.cloudfunctions.net/telegramWebhook"
    ```
 
+## Testing
+### Automatisierte Tests
+```bash
+npm test
+```
+
+Abgedeckte Unit-Tests:
+- Kategorie-Erkennung (`detectManualCategory`)
+- Text-Parsing inkl. Timestamp-Fallback (`parseTextNote`)
+- Status-Text-Bildung (`buildStatusText`)
+- CSV-Mapping für Last-7-Days Export (`mapEntriesToCsvRows`)
+
+### Manuelle Bot-Tests (Telegram)
+1. `/help` senden und Antwort prüfen.
+2. Textnotiz senden (mit/ohne Zeitangabe) und in Firestore prüfen.
+3. Voice-Nachricht unter 15 Sekunden senden (inkl. Transkription prüfen).
+4. Voice-Nachricht über 15 Sekunden senden (Fehlermeldung prüfen).
+5. Kategorie-Buttons testen und prüfen, dass `category` gespeichert wird.
+6. `/show_last`, `/delete_last`, `/export_csv`, `/export_last_7_days` validieren.
+
 ## Datenmodell (Firestore)
 Collection: `entries`
 - `chatId` (number)
