@@ -10,9 +10,10 @@ const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_API_BASE = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
 const TELEGRAM_FILE_API_BASE = `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}`;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const ENABLE_VOICE_STT = process.env.ENABLE_VOICE_STT === 'true' && Boolean(OPENAI_API_KEY);
 
 const db = new Firestore();
-const openai = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
+const openai = ENABLE_VOICE_STT && OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
 
 const CATEGORIES: Category[] = ['Food', 'Symptom', 'Mood', 'Medication', 'Sleep', 'Exercise', 'Hydration', 'Note'];
 const HELP_TEXT = `DropNote Bot – Befehle:\n\n` +
@@ -189,6 +190,13 @@ async function parseIncomingMessage(message: TelegramMessage) {
   }
 
   if (message.voice) {
+    if (!ENABLE_VOICE_STT) {
+      return {
+        ok: false as const,
+        error: 'Voice-Transkription ist deaktiviert. Bitte sende Text oder aktiviere ENABLE_VOICE_STT + OPENAI_API_KEY.'
+      };
+    }
+
     if (message.voice.duration > 15) {
       return { ok: false as const, error: 'Sprachnachricht ist zu lang (max. 15 Sekunden).' };
     }

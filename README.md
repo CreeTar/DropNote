@@ -4,7 +4,7 @@ DropNote ist ein serverless Telegram-Bot (Firebase Function), der strukturierte 
 
 ## Features (v1)
 - Text- und Voice-Nachrichten (Voice max. **15 Sekunden**)
-- Deutsche Transkription für Voice (OpenAI `gpt-4o-mini-transcribe`, Sprache `de`)
+- Deutsche Transkription für Voice (OpenAI `gpt-4o-mini-transcribe`, Sprache `de`) **nur wenn aktiviert**
 - Zeitstempel-Erkennung aus Text (de/en), sonst Telegram-Nachrichtenzeit
 - Speicherung in Firestore:
   - `eventAt` (Zeitpunkt der Beobachtung)
@@ -35,7 +35,8 @@ DropNote ist ein serverless Telegram-Bot (Firebase Function), der strukturierte 
    ```
 2. Umgebungsvariablen setzen (z. B. in Cloud Functions Secret/Env):
    - `TELEGRAM_BOT_TOKEN`
-   - `OPENAI_API_KEY` (für Voice-Transkription)
+   - `OPENAI_API_KEY` (optional, für Voice-Transkription)
+   - `ENABLE_VOICE_STT` (`true` oder `false`, Default empfohlen: `false` für Beta)
 3. Firebase Projekt konfigurieren (`.firebaserc`).
 4. Build + Deploy:
    ```bash
@@ -46,6 +47,8 @@ DropNote ist ein serverless Telegram-Bot (Firebase Function), der strukturierte 
    curl -X POST "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook" \
      -d "url=https://<region>-<project>.cloudfunctions.net/telegramWebhook"
    ```
+
+Hinweis zu Kosten: Wenn `ENABLE_VOICE_STT=false` oder kein `OPENAI_API_KEY` gesetzt ist, wird Voice-Transkription deaktiviert und der Bot fordert Text-Eingabe an.
 
 ## Testing
 ### Automatisierte Tests
