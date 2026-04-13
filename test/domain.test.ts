@@ -18,8 +18,10 @@ test('parseTextNote uses fallback timestamp when parser finds no explicit time',
   });
 
   assert.equal(result.ok, true);
-  assert.equal(result.category, 'Food');
-  assert.equal(result.eventAt.toISOString(), '2024-03-09T16:00:00.000Z');
+  if (result.ok) {
+    assert.equal(result.category, 'Food');
+    assert.equal(result.eventAt.toISOString(), '2024-03-09T16:00:00.000Z');
+  }
 });
 
 test('parseTextNote surfaces validation errors', () => {

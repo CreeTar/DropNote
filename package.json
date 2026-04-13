@@ -2,14 +2,15 @@
   "name": "dropnote-bot",
   "version": "1.0.0",
   "description": "Telegram diary bot for food/symptom tracking",
-  "main": "src/index.js",
+  "main": "dist/src/index.js",
   "type": "module",
   "scripts": {
-    "start": "firebase emulators:start --only functions",
-    "deploy": "firebase deploy --only functions",
+    "build": "tsc -p tsconfig.json",
+    "start": "npm run build && firebase emulators:start --only functions",
+    "deploy": "npm run build && firebase deploy --only functions",
     "lint": "eslint .",
-    "check": "node --check src/index.js",
-    "test": "node --test"
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test dist/test/**/*.test.js"
   },
   "engines": {
     "node": ">=20"
@@ -23,6 +24,7 @@
     "openai": "^4.89.0"
   },
   "devDependencies": {
-    "eslint": "^9.20.1"
+    "eslint": "^9.20.1",
+    "typescript": "^5.9.3"
   }
 }

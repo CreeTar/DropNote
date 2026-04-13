@@ -4,7 +4,7 @@ import { stringify } from 'csv-stringify/sync';
 import * as chrono from 'chrono-node';
 import { onRequest } from 'firebase-functions/v2/https';
 import OpenAI from 'openai';
-import { buildStatusText, mapEntriesToCsvRows, parseTextNote } from './domain.js';
+import { buildStatusText, mapEntriesToCsvRows, parseTextNote, type Category } from './domain.js';
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_API_BASE = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
@@ -14,7 +14,7 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const db = new Firestore();
 const openai = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
 
-const CATEGORIES = ['Food', 'Symptom', 'Mood', 'Medication', 'Sleep', 'Exercise', 'Hydration', 'Note'];
+const CATEGORIES: Category[] = ['Food', 'Symptom', 'Mood', 'Medication', 'Sleep', 'Exercise', 'Hydration', 'Note'];
 const HELP_TEXT = `DropNote Bot – Befehle:\n\n` +
   `/help – Hilfe anzeigen\n` +
   `/show_last – Letzten Eintrag anzeigen\n` +
@@ -22,14 +22,31 @@ const HELP_TEXT = `DropNote Bot – Befehle:\n\n` +
   `/export_csv – Alle Einträge als CSV\n` +
   `/export_last_7_days – CSV der letzten 7 Tage`;
 
-export const telegramWebhook = onRequest(async (req, res) => {
+type TelegramMessage = {
+  message_id: number;
+  date: number;
+  text?: string;
+  voice?: { file_id: string; duration: number };
+  from?: { id: number };
+  chat?: { id: number };
+};
+
+type TelegramUpdate = { message?: TelegramMessage; callback_query?: TelegramCallbackQuery };
+
+type TelegramCallbackQuery = {
+  id: string;
+  data?: string;
+  message?: { message_id: number; chat?: { id: number } };
+};
+
+export const telegramWebhook = onRequest(async (req: any, res: any) => {
   if (!TELEGRAM_BOT_TOKEN) {
     res.status(500).send('TELEGRAM_BOT_TOKEN is missing');
     return;
   }
 
   try {
-    const update = req.body;
+    const update = req.body as TelegramUpdate;
 
     if (update.callback_query) {
       await handleCallback(update.callback_query);
@@ -88,8 +105,8 @@ export const telegramWebhook = onRequest(async (req, res) => {
   }
 });
 
-async function handleCommand(message) {
-  const chatId = message.chat.id;
+async function handleCommand(message: TelegramMessage): Promise<void> {
+  const chatId = message.chat!.id;
   const command = (message.text || '').split(' ')[0].trim();
 
   if (command === '/help') {
@@ -134,14 +151,14 @@ async function handleCommand(message) {
 
   if (command === '/export_csv' || command === '/export_last_7_days') {
     const is7Days = command === '/export_last_7_days';
-    const q = db.collection('entries')
+    const snap = await db.collection('entries')
       .where('chatId', '==', chatId)
-      .orderBy('eventAt', 'asc');
+      .orderBy('eventAt', 'asc')
+      .get();
 
-    const snap = await q.get();
     const rows = mapEntriesToCsvRows(
-      snap.docs.map((d) => {
-        const data = d.data();
+      snap.docs.map((d: any) => {
+        const data = d.data() as { eventAt: { toMillis: () => number }; category?: string; note: string; source: string };
         return {
           eventAtMillis: data.eventAt.toMillis(),
           category: data.category,
@@ -166,28 +183,28 @@ async function handleCommand(message) {
   await sendMessage(chatId, 'Unbekannter Befehl. Nutze /help.');
 }
 
-async function parseIncomingMessage(message) {
+async function parseIncomingMessage(message: TelegramMessage) {
   if (message.text) {
     return parseTextMessage(message.text, message.date);
   }
 
   if (message.voice) {
     if (message.voice.duration > 15) {
-      return { ok: false, error: 'Sprachnachricht ist zu lang (max. 15 Sekunden).' };
+      return { ok: false as const, error: 'Sprachnachricht ist zu lang (max. 15 Sekunden).' };
     }
 
     const transcript = await transcribeVoice(message.voice.file_id);
     if (!transcript || transcript.trim().length < 2) {
-      return { ok: false, error: 'Sprachnachricht unklar oder zu kurz. Bitte wiederholen.' };
+      return { ok: false as const, error: 'Sprachnachricht unklar oder zu kurz. Bitte wiederholen.' };
     }
 
     return parseTextMessage(transcript, message.date, 'voice');
   }
 
-  return { ok: false, error: 'Bitte sende Text oder eine Sprachnachricht.' };
+  return { ok: false as const, error: 'Bitte sende Text oder eine Sprachnachricht.' };
 }
 
-function parseTextMessage(text, fallbackUnixSeconds, source = 'text') {
+function parseTextMessage(text: string, fallbackUnixSeconds: number, source: 'text' | 'voice' = 'text') {
   return parseTextNote({
     text,
     fallbackUnixSeconds,
@@ -196,7 +213,7 @@ function parseTextMessage(text, fallbackUnixSeconds, source = 'text') {
   });
 }
 
-async function transcribeVoice(fileId) {
+async function transcribeVoice(fileId: string): Promise<string | null> {
   if (!openai) {
     return null;
   }
@@ -220,12 +237,20 @@ async function transcribeVoice(fileId) {
   return transcription.text;
 }
 
-async function getTelegramFilePath(fileId) {
+async function getTelegramFilePath(fileId: string): Promise<string> {
   const payload = await telegramApi('getFile', { file_id: fileId });
   return payload.result.file_path;
 }
 
-async function saveEntry(entry) {
+async function saveEntry(entry: {
+  chatId: number;
+  userId?: number;
+  note: string;
+  source: string;
+  eventAt: Date;
+  category: string | null;
+  messageId: number;
+}) {
   return db.collection('entries').add({
     ...entry,
     eventAt: new Date(entry.eventAt),
@@ -234,8 +259,8 @@ async function saveEntry(entry) {
   });
 }
 
-async function askForCategory(chatId, entryId) {
-  const inline_keyboard = [];
+async function askForCategory(chatId: number, entryId: string): Promise<void> {
+  const inline_keyboard: Array<Array<{ text: string; callback_data: string }>> = [];
   for (let i = 0; i < CATEGORIES.length; i += 2) {
     inline_keyboard.push(
       CATEGORIES.slice(i, i + 2).map((category) => ({ text: category, callback_data: `cat:${entryId}:${category}` }))
@@ -245,7 +270,7 @@ async function askForCategory(chatId, entryId) {
   await sendMessage(chatId, 'Bitte Kategorie wählen:', { inline_keyboard });
 }
 
-async function handleCallback(callbackQuery) {
+async function handleCallback(callbackQuery: TelegramCallbackQuery): Promise<void> {
   const chatId = callbackQuery.message?.chat?.id;
   const messageId = callbackQuery.message?.message_id;
   if (!chatId || !callbackQuery.data) return;
@@ -271,12 +296,12 @@ async function handleCallback(callbackQuery) {
   }
 }
 
-function formatEntry(doc) {
+function formatEntry(doc: { eventAt: { toDate: () => Date }; category?: string; note: string }): string {
   const dt = doc.eventAt.toDate().toISOString();
   return `📝 ${dt}\nKategorie: ${doc.category || '—'}\nNotiz: ${doc.note}`;
 }
 
-async function upsertStatusMessage(chatId) {
+async function upsertStatusMessage(chatId: number): Promise<void> {
   const snap = await db.collection('entries')
     .where('chatId', '==', chatId)
     .orderBy('eventAt', 'desc')
@@ -289,7 +314,7 @@ async function upsertStatusMessage(chatId) {
     .get();
 
   const total = totalSnap.data().count;
-  const latest = !snap.empty ? snap.docs[0].data() : null;
+  const latest = !snap.empty ? (snap.docs[0].data() as { eventAt?: { toMillis?: () => number } }) : null;
   const status = buildStatusText({
     total,
     latestMillis: latest?.eventAt?.toMillis?.()
@@ -297,7 +322,7 @@ async function upsertStatusMessage(chatId) {
 
   const metaRef = db.collection('chatMeta').doc(String(chatId));
   const meta = await metaRef.get();
-  const statusMessageId = meta.exists ? meta.data().statusMessageId : null;
+  const statusMessageId = meta.exists ? (meta.data() as { statusMessageId?: number }).statusMessageId : null;
 
   if (statusMessageId) {
     const edited = await editMessage(chatId, statusMessageId, status);
@@ -311,7 +336,7 @@ async function upsertStatusMessage(chatId) {
   }, { merge: true });
 }
 
-async function tryDeleteOriginalMessage(chatId, messageId) {
+async function tryDeleteOriginalMessage(chatId: number, messageId: number): Promise<void> {
   try {
     await telegramApi('deleteMessage', { chat_id: chatId, message_id: messageId });
   } catch {
@@ -319,7 +344,7 @@ async function tryDeleteOriginalMessage(chatId, messageId) {
   }
 }
 
-async function sendMessage(chatId, text, reply_markup) {
+async function sendMessage(chatId: number, text: string, reply_markup?: unknown) {
   return telegramApi('sendMessage', {
     chat_id: chatId,
     text,
@@ -327,7 +352,7 @@ async function sendMessage(chatId, text, reply_markup) {
   });
 }
 
-async function editMessage(chatId, messageId, text) {
+async function editMessage(chatId: number, messageId: number, text: string) {
   return telegramApi('editMessageText', {
     chat_id: chatId,
     message_id: messageId,
@@ -335,7 +360,7 @@ async function editMessage(chatId, messageId, text) {
   });
 }
 
-async function answerCallbackQuery(callbackQueryId, text) {
+async function answerCallbackQuery(callbackQueryId: string, text: string) {
   return telegramApi('answerCallbackQuery', {
     callback_query_id: callbackQueryId,
     text,
@@ -343,7 +368,7 @@ async function answerCallbackQuery(callbackQueryId, text) {
   });
 }
 
-async function sendDocument(chatId, filename, content) {
+async function sendDocument(chatId: number, filename: string, content: string): Promise<unknown> {
   const formData = new FormData();
   formData.append('chat_id', String(chatId));
   formData.append('document', new Blob([content], { type: 'text/csv' }), filename);
@@ -360,7 +385,7 @@ async function sendDocument(chatId, filename, content) {
   return response.json();
 }
 
-async function telegramApi(method, payload) {
+async function telegramApi(method: string, payload: unknown): Promise<any> {
   const response = await fetch(`${TELEGRAM_API_BASE}/${method}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

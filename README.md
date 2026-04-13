@@ -28,7 +28,7 @@ DropNote ist ein serverless Telegram-Bot (Firebase Function), der strukturierte 
 - **Firestore** als Datenbank
 - Event-basierte Serverless Ausführung
 
-## Setup
+## Setup (TypeScript)
 1. Abhängigkeiten installieren:
    ```bash
    npm install
@@ -37,7 +37,7 @@ DropNote ist ein serverless Telegram-Bot (Firebase Function), der strukturierte 
    - `TELEGRAM_BOT_TOKEN`
    - `OPENAI_API_KEY` (für Voice-Transkription)
 3. Firebase Projekt konfigurieren (`.firebaserc`).
-4. Deploy:
+4. Build + Deploy:
    ```bash
    npm run deploy
    ```
@@ -51,6 +51,11 @@ DropNote ist ein serverless Telegram-Bot (Firebase Function), der strukturierte 
 ### Automatisierte Tests
 ```bash
 npm test
+```
+
+Type-Check only:
+```bash
+npm run check
 ```
 
 Abgedeckte Unit-Tests:

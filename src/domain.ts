@@ -1,4 +1,14 @@
-const CATEGORY_PREFIXES = {
+export type Category =
+  | 'Food'
+  | 'Symptom'
+  | 'Mood'
+  | 'Medication'
+  | 'Sleep'
+  | 'Exercise'
+  | 'Hydration'
+  | 'Note';
+
+const CATEGORY_PREFIXES: Record<Category, string[]> = {
   Food: ['food:', 'essen:'],
   Symptom: ['symptom:'],
   Mood: ['mood:', 'stimmung:'],
@@ -9,9 +19,9 @@ const CATEGORY_PREFIXES = {
   Note: ['note:']
 };
 
-export function detectManualCategory(text) {
+export function detectManualCategory(text: string): Category | null {
   const lower = (text || '').trim().toLowerCase();
-  for (const [category, prefixes] of Object.entries(CATEGORY_PREFIXES)) {
+  for (const [category, prefixes] of Object.entries(CATEGORY_PREFIXES) as Array<[Category, string[]]>) {
     if (prefixes.some((prefix) => lower.startsWith(prefix))) {
       return category;
     }
@@ -19,7 +29,21 @@ export function detectManualCategory(text) {
   return null;
 }
 
-export function parseTextNote({ text, fallbackUnixSeconds, source = 'text', timeParser }) {
+export type ParseTextNoteResult =
+  | { ok: false; error: string }
+  | { ok: true; note: string; source: 'text' | 'voice'; category: Category | null; eventAt: Date };
+
+export function parseTextNote({
+  text,
+  fallbackUnixSeconds,
+  source = 'text',
+  timeParser
+}: {
+  text: string;
+  fallbackUnixSeconds: number;
+  source?: 'text' | 'voice';
+  timeParser?: (input: string) => Date | null;
+}): ParseTextNoteResult {
   const cleaned = text?.trim();
   if (!cleaned || cleaned.length < 2) {
     return { ok: false, error: 'Text zu kurz oder leer. Bitte erneut senden.' };
@@ -41,7 +65,15 @@ export function parseTextNote({ text, fallbackUnixSeconds, source = 'text', time
   };
 }
 
-export function buildStatusText({ total, latestMillis, nowMillis = Date.now() }) {
+export function buildStatusText({
+  total,
+  latestMillis,
+  nowMillis = Date.now()
+}: {
+  total: number;
+  latestMillis?: number;
+  nowMillis?: number;
+}): string {
   if (!total || total < 1) {
     return '0 Notizen gespeichert.';
   }
@@ -54,7 +86,11 @@ export function buildStatusText({ total, latestMillis, nowMillis = Date.now() })
   return `${total} Notizen, letzte vor ${agoMin} min.`;
 }
 
-export function mapEntriesToCsvRows(entries, is7Days = false, nowMillis = Date.now()) {
+export function mapEntriesToCsvRows(
+  entries: Array<{ eventAtMillis: number; category?: string | null; note: string; source: string }>,
+  is7Days = false,
+  nowMillis = Date.now()
+): Array<{ date_time: string; category: string; note: string; source: string }> {
   const cutoff = nowMillis - (7 * 24 * 60 * 60 * 1000);
   return entries
     .filter((e) => !is7Days || e.eventAtMillis >= cutoff)
