@@ -4,6 +4,7 @@ import { stringify } from 'csv-stringify/sync';
 import * as chrono from 'chrono-node';
 import { onRequest } from 'firebase-functions/v2/https';
 import OpenAI from 'openai';
+import { createSessionToken, verifySessionToken, verifyTelegramLogin, type TelegramAuthPayload } from './auth.js';
 import { buildStatusText, mapEntriesToCsvRows, parseTextNote, type Category } from './domain.js';
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -11,6 +12,7 @@ const TELEGRAM_API_BASE = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
 const TELEGRAM_FILE_API_BASE = `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}`;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const ENABLE_VOICE_STT = process.env.ENABLE_VOICE_STT === 'true' && Boolean(OPENAI_API_KEY);
+const SESSION_SECRET = process.env.SESSION_SECRET || '';
 
 const db = new Firestore();
 const openai = ENABLE_VOICE_STT && OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
@@ -103,6 +105,142 @@ export const telegramWebhook = onRequest(async (req: any, res: any) => {
   } catch (error) {
     console.error(error);
     res.status(500).send('error');
+  }
+});
+
+export const adminApi = onRequest(async (req: any, res: any) => {
+  try {
+    addCors(res);
+    if (req.method === 'OPTIONS') {
+      res.status(204).send('');
+      return;
+    }
+
+    if (req.path === '/auth/telegram' && req.method === 'POST') {
+      if (!TELEGRAM_BOT_TOKEN || !SESSION_SECRET) {
+        res.status(500).json({ error: 'Missing TELEGRAM_BOT_TOKEN or SESSION_SECRET' });
+        return;
+      }
+
+      const payload = req.body as TelegramAuthPayload;
+      const ok = verifyTelegramLogin(payload, TELEGRAM_BOT_TOKEN);
+      if (!ok) {
+        res.status(401).json({ error: 'Invalid Telegram login payload' });
+        return;
+      }
+
+      const userId = String(payload.id);
+      const token = createSessionToken({ userId, username: payload.username }, SESSION_SECRET);
+      await db.collection('users').doc(userId).set({
+        userId,
+        username: payload.username || null,
+        firstName: payload.first_name || null,
+        lastName: payload.last_name || null,
+        lastLoginAt: new Date()
+      }, { merge: true });
+
+      res.status(200).json({ token, userId, username: payload.username || null });
+      return;
+    }
+
+    const auth = authenticate(req);
+    if (!auth.ok) {
+      res.status(401).json({ error: auth.error });
+      return;
+    }
+
+    const userId = Number(auth.user.userId);
+    if (!Number.isFinite(userId)) {
+      res.status(400).json({ error: 'Invalid user id' });
+      return;
+    }
+
+    if (req.path === '/entries' && req.method === 'GET') {
+      const is7Days = req.query.last7days === 'true';
+      const snap = await db.collection('entries')
+        .where('userId', '==', userId)
+        .orderBy('eventAt', 'desc')
+        .get();
+
+      const rows = snap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+      const cutoff = Date.now() - (7 * 24 * 60 * 60 * 1000);
+      const filtered = rows.filter((r: any) => !is7Days || r.eventAt.toMillis() >= cutoff).map((r: any) => ({
+        id: r.id,
+        note: r.note,
+        category: r.category || null,
+        source: r.source,
+        eventAt: r.eventAt.toDate().toISOString()
+      }));
+
+      res.status(200).json({ entries: filtered });
+      return;
+    }
+
+    if (req.path === '/entries/export.csv' && req.method === 'GET') {
+      const snap = await db.collection('entries')
+        .where('userId', '==', userId)
+        .orderBy('eventAt', 'asc')
+        .get();
+      const rows = mapEntriesToCsvRows(snap.docs.map((d: any) => {
+        const data = d.data();
+        return {
+          eventAtMillis: data.eventAt.toMillis(),
+          category: data.category,
+          note: data.note,
+          source: data.source
+        };
+      }), req.query.last7days === 'true');
+      const csv = stringify(rows, { header: true });
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.status(200).send(csv);
+      return;
+    }
+
+    const entryMatch = req.path.match(/^\/entries\/([A-Za-z0-9_-]+)$/);
+    if (entryMatch && req.method === 'PUT') {
+      const entryId = entryMatch[1];
+      const ref = db.collection('entries').doc(entryId);
+      const snap = await ref.get();
+      if (!snap.exists) {
+        res.status(404).json({ error: 'Entry not found' });
+        return;
+      }
+      const current = snap.data() as { userId?: number };
+      if (current.userId !== userId) {
+        res.status(403).json({ error: 'Forbidden' });
+        return;
+      }
+
+      const update: Record<string, unknown> = { updatedAt: new Date() };
+      if (typeof req.body?.note === 'string' && req.body.note.trim()) update.note = req.body.note.trim();
+      if (typeof req.body?.category === 'string' || req.body?.category === null) update.category = req.body.category;
+      await ref.update(update);
+      res.status(200).json({ ok: true });
+      return;
+    }
+
+    if (entryMatch && req.method === 'DELETE') {
+      const entryId = entryMatch[1];
+      const ref = db.collection('entries').doc(entryId);
+      const snap = await ref.get();
+      if (!snap.exists) {
+        res.status(404).json({ error: 'Entry not found' });
+        return;
+      }
+      const current = snap.data() as { userId?: number };
+      if (current.userId !== userId) {
+        res.status(403).json({ error: 'Forbidden' });
+        return;
+      }
+      await ref.delete();
+      res.status(200).json({ ok: true });
+      return;
+    }
+
+    res.status(404).json({ error: 'Not found' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal error' });
   }
 });
 
@@ -406,4 +544,20 @@ async function telegramApi(method: string, payload: unknown): Promise<any> {
   }
 
   return data;
+}
+
+function addCors(res: any): void {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+}
+
+function authenticate(req: any): { ok: true; user: { userId: string; username: string } } | { ok: false; error: string } {
+  if (!SESSION_SECRET) return { ok: false, error: 'Missing SESSION_SECRET' };
+  const header = req.headers?.authorization || '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : '';
+  if (!token) return { ok: false, error: 'Missing bearer token' };
+  const session = verifySessionToken(token, SESSION_SECRET);
+  if (!session) return { ok: false, error: 'Invalid token' };
+  return { ok: true, user: session };
 }

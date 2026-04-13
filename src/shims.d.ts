@@ -6,6 +6,7 @@ declare module 'openai';
 declare module 'node:test';
 declare module 'node:assert/strict';
 declare module 'node:buffer';
+declare module 'node:crypto';
 
 declare const process: {
   env: Record<string, string | undefined>;

@@ -25,7 +25,9 @@ DropNote ist ein serverless Telegram-Bot (Firebase Function), der strukturierte 
 
 ## Architektur
 - **Telegram Webhook** -> Firebase HTTPS Function `telegramWebhook`
+- **Admin API** -> Firebase HTTPS Function `adminApi` (Telegram Login + CRUD + CSV)
 - **Firestore** als Datenbank
+- **Firebase Hosting** für Web-Admin Oberfläche
 - Event-basierte Serverless Ausführung
 
 ## Setup (TypeScript)
@@ -37,6 +39,7 @@ DropNote ist ein serverless Telegram-Bot (Firebase Function), der strukturierte 
    - `TELEGRAM_BOT_TOKEN`
    - `OPENAI_API_KEY` (optional, für Voice-Transkription)
    - `ENABLE_VOICE_STT` (`true` oder `false`, Default empfohlen: `false` für Beta)
+   - `SESSION_SECRET` (für signierte Admin-Sessions)
 3. Firebase Projekt konfigurieren (`.firebaserc`).
 4. Build + Deploy:
    ```bash
@@ -49,6 +52,19 @@ DropNote ist ein serverless Telegram-Bot (Firebase Function), der strukturierte 
    ```
 
 Hinweis zu Kosten: Wenn `ENABLE_VOICE_STT=false` oder kein `OPENAI_API_KEY` gesetzt ist, wird Voice-Transkription deaktiviert und der Bot fordert Text-Eingabe an.
+
+## Web Admin (Telegram Login only)
+- Hosting-Dateien liegen in `web/`.
+- Login läuft über Telegram Login Widget (kein Passwort-Storage).
+- Backend prüft Telegram Signatur in `POST /auth/telegram` und gibt ein signiertes Session-Token zurück.
+- Alle Admin-Endpunkte prüfen `Authorization: Bearer <token>` und filtern Daten nach `userId`.
+
+### Vor Deploy anpassen
+In `web/index.html`:
+- `data-telegram-login=\"__BOT_USERNAME__\"` durch deinen Bot-Username ersetzen.
+
+In `web/app.js`:
+- `__ADMIN_API_BASE__` durch die URL von `adminApi` ersetzen.
 
 ## Testing
 ### Automatisierte Tests
