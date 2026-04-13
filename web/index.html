@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DropNote Admin</title>
+    <style>
+      body { font-family: sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
+      table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+      td, th { border: 1px solid #ddd; padding: 8px; }
+      .row { display: flex; gap: .5rem; }
+      .hidden { display: none; }
+    </style>
+    <script async src="https://telegram.org/js/telegram-widget.js?22" data-telegram-login="__BOT_USERNAME__" data-size="large" data-onauth="onTelegramAuth(user)" data-request-access="write"></script>
+  </head>
+  <body>
+    <h1>DropNote Admin</h1>
+    <p>Login mit Telegram, dann Einträge anzeigen/bearbeiten/löschen/exportieren.</p>
+
+    <div id="status">Nicht eingeloggt</div>
+    <div class="row">
+      <button id="loadBtn">Einträge laden</button>
+      <button id="exportBtn">CSV Export</button>
+    </div>
+
+    <table id="table" class="hidden">
+      <thead><tr><th>Zeit</th><th>Kategorie</th><th>Notiz</th><th>Aktionen</th></tr></thead>
+      <tbody></tbody>
+    </table>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
